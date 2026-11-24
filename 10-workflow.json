@@ -1,0 +1,218 @@
+{
+  "name": "FAQ Chatbot (Arabic + English)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "faq-chat",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "0a72afa2-ee8c-54e4-80f1-18cee3e64228",
+      "name": "Chat Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1"
+        }
+      },
+      "id": "86970813-3846-5a16-ac8a-eb768a09fbbf",
+      "name": "Sheets: Read FAQ",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        240,
+        200
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "SET ME: Google Sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(i => i.json);\nconst q = String($('Chat Webhook').item.json.body?.question || '').trim().slice(0, 500);\nif (!q) { return [{ json: { error: 'missing question' } }]; }\nconst faq = rows.map(r => `Q: ${r.question_en || ''} / ${r.question_ar || ''}\\nA: ${r.answer_en || ''} / ${r.answer_ar || ''}`).join('\\n\\n').slice(0, 8000);\nreturn [{ json: { question: q, prompt: `FAQ:\\n${faq}\\n\\nCustomer question: ${q}` } }];"
+      },
+      "id": "e874cad8-63b9-5f28-812a-1b63ee114a45",
+      "name": "Build Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "groqApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({model:'openai/gpt-oss-20b',temperature:0.2,response_format:{type:'json_object'},messages:[{role:'system',content:\"You are a friendly assistant for a small clinic or pharmacy. Answer ONLY from the FAQ provided. Reply in the same language as the question (Arabic or English). If the FAQ does not contain the answer, say you will pass the question to the team and ask for a phone number. Never give medical advice or dosages. Return ONLY JSON: {\\\"answer\\\": string, \\\"answered_from_faq\\\": boolean}.\"},{role:'user',content:$json.prompt}]}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "83126bd6-cc09-5b69-92b2-54c863b9acbe",
+      "name": "Groq: Answer from FAQ",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        200
+      ],
+      "credentials": {
+        "groqApi": {
+          "id": "",
+          "name": "SET ME: Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $json.choices?.[0]?.message?.content ?? '';\nlet out; try { out = JSON.parse(raw); } catch (e) { out = null; }\nif (!out || !out.answer) out = { answer: 'Sorry, I could not answer that. The team will get back to you. / عذرا، سيرد عليك فريقنا قريبا.', answered_from_faq: false };\nreturn [{ json: { answer: String(out.answer), answered_from_faq: !!out.answered_from_faq } }];"
+      },
+      "id": "80ba50f0-1f00-5fc7-b97c-5e55c9f8b410",
+      "name": "Format Answer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "a4f727d0-4626-5fb3-a75e-70c398e9a4bd",
+      "name": "Respond to Chat",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## FAQ Chatbot (AR/EN)\nPOST {\"question\": \"...\"} to the webhook. Answers come only from the FAQ sheet (columns: question_en, question_ar, answer_en, answer_ar).",
+        "width": 480,
+        "height": 130,
+        "color": 4
+      },
+      "id": "0b130394-ff5c-5c6b-b60c-f06967f4c3a0",
+      "name": "Note: FAQ Chatbot (AR/EN)",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Safety\nPrompt forbids medical advice and invented answers. Unknown questions get a hand-off message.",
+        "width": 480,
+        "height": 130,
+        "color": 5
+      },
+      "id": "8b7bbe0e-d1a1-5b2c-8a8c-f06cf611dedc",
+      "name": "Note: Safety",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        720,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Chat Webhook": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Read FAQ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets: Read FAQ": {
+      "main": [
+        [
+          {
+            "node": "Build Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Prompt": {
+      "main": [
+        [
+          {
+            "node": "Groq: Answer from FAQ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq: Answer from FAQ": {
+      "main": [
+        [
+          {
+            "node": "Format Answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Answer": {
+      "main": [
+        [
+          {
+            "node": "Respond to Chat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}
